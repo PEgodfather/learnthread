@@ -52,6 +52,8 @@ void say(int type,void* pArgs) {
 
 C语言中NULL代表(void **)0，而在C++中NULL代表的是0，使用nullptr来表示(void* *)0空指针。
 
+___
+
 #### 回调函数
 
 利用一个函数去调用另一个函数。
@@ -106,4 +108,112 @@ int main(int argc, char **argv) {
 }
 
 ~~~
+
++++
+
+#### static_cast
+
+强制类型转换操作符
+
+举例：
+
+~~~c++
+double a = 1.999;
+int b = static_cast<double>(a); //相当于a = b ;
+~~~
+
+当编译器隐式执行类型转换时，大多数的编译器都会给出一个警告：
+
+~~~c++
+e:\vs 2010 projects\static_cast\static_cast\static_cast.cpp(11): warning C4244: “初始化”: 从“double”转换到“int”，可能丢失数据
+~~~
+
+使用static_cast可以明确告诉编译器，这种损失精度的转换是在知情的情况下进行的，也可以让阅读程序的其他程序员明确你转换的目的不是由于疏忽。
+
+**使用static_cast可以找回存放在void\*指针中的值。**
+
+~~~c++
+double a = 1.999;
+void * vptr = & a;
+double * dptr = static_cast<double*>(vptr);
+cout<<*dptr<<endl;//输出1.999
+~~~
+
+---
+
+#### notify_one()与notify_all()
+
+头文件`#include <condition_variable>`
+
+通常配合`#include <mutex>`使用
+
+当一个函数中使用了wait来阻塞线程时，在另一个函数中就可以使用notify_one()与notify_all()来唤醒阻塞线程。
+
+比如：
+
+~~~c++
+#include <iostream>           // std::cout
+#include <thread>             // std::thread
+#include <mutex>              // std::mutex, std::unique_lock
+#include <condition_variable> // std::condition_variable
+ 
+std::mutex mtx;
+std::condition_variable cv;
+bool ready = false;
+
+void print_id(int id) {
+	std::unique_lock<std::mutex> lck(mtx);
+	while (!ready) cv.wait(lck);
+	// ...
+	std::cout << "thread " << id << '\n';
+}
+ 
+void go() {
+	std::unique_lock<std::mutex> lck(mtx);
+	ready = true;
+	cv.notify_all(); // 这是重点
+}
+ 
+int main()
+{
+	std::thread threads[10];
+	// spawn 10 threads:
+	for (int i = 0; i < 10; ++i)
+		threads[i] = std::thread(print_id, i);
+ 
+	std::cout << "10 threads ready to race...\n";
+	go();                       // go!
+ 
+	for (auto& th : threads) th.join();
+ 
+	return 0;
+}
+~~~
+
+输出结果：
+
+~~~C++
+10 threads ready to race...
+thread 2
+thread 0
+thread 9
+thread 4
+thread 6
+thread 8
+thread 7
+thread 5
+thread 3
+thread 1
+~~~
+
+当使用notify_one()时，结果：
+
+~~~c++
+10 threads ready to race...
+thread 0
+~~~
+
+只会唤醒一个线程。
+
+---
 
