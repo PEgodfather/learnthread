@@ -233,7 +233,7 @@ thread 0
 
 
 
-mythreadpool.h文件
+#### mythreadpool.h文件
 
 ~~~c++
 #pragma once
@@ -308,7 +308,7 @@ public:
 4. 管理者线程会定期检查任务队列和线程池的状态，根据需要创建新的线程或销毁空闲的线程。
 5. 当线程池被销毁时，所有的工作线程和管理者线程会被回收。 
 
-mythreadpool.cpp文件
+#### mythreadpool.cpp文件
 
 ~~~c++
 #include "mythreadpool.h"
@@ -468,5 +468,69 @@ void MyThreadPool::addTask(void (*f)(void*), void* e) {
 
 ~~~
 
+#### 如何使用
 
+首先创建MyThreadPool对象，例如我想要创建5~10个线程在线程池中（线程在线程池中动态切换数量）：
+
+~~~c++
+MyThreadPool pool(5,10);
+~~~
+
+创建一个任务类，类中创建一个回调函数，如：
+
+~~~c++
+class myTask{
+  void run(){
+      cout<<"任务"<<endl;
+  }  
+};
+~~~
+
+创建一个任务函数func()，如：
+
+~~~c++
+void func(void* a) {
+	myTask* mt = static_cast<myTask*> (a);
+	mt->run();
+}
+~~~
+
+然后使用添加任务的函数addTask()，例如：
+
+~~~c++
+pool.addTask(func,new myTask);
+~~~
+
+完成以上操作即可使线程池开始工作。
+
+
+
+完整代码：
+
+~~~c++
+#include"MyThreadPool.h"
+
+class myTask {
+public:
+	void run() {
+		cout << "任务" << endl;
+	}
+};
+void func(void* a) {
+	myTask* mt = static_cast<myTask*> (a);
+	mt->run();
+}
+
+int main() {
+	MyThreadPool pool(5,10);
+	
+	int N = 100;
+	while (N--) {
+		this_thread::sleep_for(chrono::milliseconds(100));//等待100ms
+		pool.addTask(func, new myTask);
+	}
+
+	return 0;
+}
+~~~
 
