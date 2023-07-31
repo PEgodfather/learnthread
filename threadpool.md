@@ -217,3 +217,256 @@ thread 0
 
 ---
 
+### 线程池构建：
+
+构建线程池首先应该明白线程池的工作原理。
+
+普通的线程池至少包含**任务队列**与**工作线程组**。
+
+<img src="G:\Desktop\vscode-code\git_projecct\thread728\1.png" style="zoom:50%;" />
+
+我在普通线程池上增加了**管理者**，目的是为了调整线程数量，使线程池更灵活与高效。
+
+<img src="G:\Desktop\vscode-code\git_projecct\thread728\2.png" alt="2" style="zoom:50%;" />
+
+
+
+
+
+mythreadpool.h文件
+
+~~~c++
+#pragma once
+#ifndef __MYTHREADPOOL_H__
+#define __MYTHREADPOOL_H__
+
+#include<iostream>
+#include<thread>
+#include<mutex>
+#include<condition_variable>
+#include<queue>
+#include<vector>
+#include<stdlib.h>
+using namespace std;
+
+#define MAXADD 2
+#define MAXDEL 2
+
+class Task {
+public:
+	void (*func)(void*);
+	void* event;
+	Task(void (*f)(void*), void* e) {
+		func = f;
+		event = e;
+	}
+};
+
+class MyThreadPool {
+private:
+	queue<Task> jobs;
+	vector<thread> ren;
+	thread manager;
+	int minren;
+	int maxren;
+	int workingren;
+	int nowren;
+	int exitren;
+	mutex suo;
+	condition_variable baoan;
+	bool isStop;
+	static void managerRun(void* arg);
+	static void findJob(void* arg);
+
+
+public:
+	MyThreadPool(int min, int max);
+	~MyThreadPool();
+	void addTask(void (*f)(void*), void* e);
+};
+
+#endif
+~~~
+
+
+
+1. `MyThreadPool::managerRun(void* arg)`：这是管理者线程的运行函数。它会定期检查任务队列和线程池的状态，根据任务数量和线程数量的比例，决定是否需要创建新的线程或销毁空闲的线程。
+
+2. `MyThreadPool::findJob(void* arg)`：这是工作线程的运行函数。它会持续寻找任务队列中的任务并执行。如果任务队列为空，线程会进入等待状态，直到有新的任务添加到队列中。
+
+3. `MyThreadPool::MyThreadPool(int min,int max)`：这是线程池的构造函数。它会初始化线程池，并创建指定数量的工作线程和一个管理者线程。
+
+4. `MyThreadPool::~MyThreadPool()`：这是线程池的析构函数。它会设置线程池的停止标志，并回收所有的工作线程和管理者线程。
+
+5. `MyThreadPool::addTask(void (*f)(void*), void* e)`：这是添加任务的函数。它会将新的任务添加到任务队列，并唤醒一个等待的工作线程。
+
+工作流程如下：
+
+1. 创建线程池，指定最小和最大线程数量。
+2. 添加任务到线程池，任务会被添加到任务队列中。
+3. 工作线程会从任务队列中取出任务并执行。如果任务队列为空，工作线程会进入等待状态。
+4. 管理者线程会定期检查任务队列和线程池的状态，根据需要创建新的线程或销毁空闲的线程。
+5. 当线程池被销毁时，所有的工作线程和管理者线程会被回收。 
+
+mythreadpool.cpp文件
+
+~~~c++
+#include "mythreadpool.h"
+
+// 管理者线程运行的函数
+void MyThreadPool::managerRun(void* arg) {
+	// 将参数转换为线程池对象
+	MyThreadPool* pool = static_cast<MyThreadPool*>(arg);
+	// 当线程池没有停止时，持续运行
+	while (!pool->isStop) {
+		// 每两秒钟检查一次
+		this_thread::sleep_for(chrono::seconds(2));
+		// 锁定线程池
+		unique_lock<mutex> lk(pool->suo);
+
+		// 获取当前任务数量，当前线程数量，最大线程数量
+		int jobsize = pool->jobs.size();
+		int now = pool->nowren;
+		int max = pool->maxren;
+		int addcount = 0;
+		// 解锁线程池
+		lk.unlock();
+
+		// 如果任务数量大于当前线程数量且当前线程数量小于最大线程数量
+		if (jobsize > now && now < max) {
+			// 锁定线程池
+			lk.lock();
+			// 添加新的线程
+			for (int i = 0; i < pool->maxren && addcount < MAXADD && pool->nowren < pool->maxren; ++i) {
+				// 如果当前线程为空
+				if (pool->ren[i].get_id() == thread::id()) {
+
+					// 创建新的线程
+					pool->ren[i] = thread(findJob, pool);
+					addcount++;
+					pool->nowren++;
+				}
+			}
+			// 解锁线程池
+			lk.unlock();
+		}
+		// 锁定线程池
+		lk.lock();
+		// 如果工作线程数量的两倍小于当前线程数量且当前线程数量大于最小线程数量
+		if (pool->workingren * 2 < pool->nowren && pool->nowren > pool->minren) {
+			// 准备销毁线程
+			cout << "准备销毁" << " " << pool->workingren * 2 << " " << pool->nowren << " " << endl;
+			pool->exitren = MAXDEL;
+			// 唤醒所有线程
+			pool->baoan.notify_all();
+		}
+		// 解锁线程池
+		lk.unlock();
+	}
+}
+
+// 寻找任务的函数
+void MyThreadPool::findJob(void* arg) {
+	// 将参数转换为线程池对象
+	MyThreadPool* pool = static_cast<MyThreadPool*>(arg);
+
+	// 持续寻找任务
+	while (1) {
+		// 锁定线程池
+		unique_lock<mutex> lk(pool->suo);
+
+		// 如果任务队列为空且线程池没有停止
+		while (pool->jobs.empty() && !pool->isStop) {
+			// 等待任务
+			pool->baoan.wait(lk);
+			// 销毁线程
+			if (pool->exitren > 0) {
+				pool->exitren--;
+				if (pool->nowren > pool->minren) {
+					pool->nowren--;
+				}
+				// 解锁线程池
+				lk.unlock();
+				return;
+			}
+		}
+		// 如果线程池停止
+		if (pool->isStop) {
+			// 关闭当前线程
+			cout << "线程池即将关闭，当前线程" << this_thread::get_id() << "关闭..." << endl;
+			return;
+		}
+
+		// 获取任务
+		Task task = pool->jobs.front();
+		pool->jobs.pop();
+		pool->workingren++;
+		// 解锁线程池
+		lk.unlock();
+
+		// 执行任务
+		cout << "thread: " << this_thread::get_id() << " start working..." << endl;
+		task.func(task.event);
+		free(task.event);
+		task.event = nullptr;
+
+		// 任务执行完毕，解锁线程池
+		lk.lock();
+		pool->workingren--;
+		cout << "thread: " << this_thread::get_id() << " end working...当前还有" << pool->workingren << "个线程在工作" << endl;
+		lk.unlock();
+
+	}
+}
+
+// 线程池构造函数
+MyThreadPool::MyThreadPool(int min, int max) {
+	minren = min;
+	maxren = max;
+	workingren = 0;
+	nowren = min;
+	exitren = 0;
+	isStop = false;
+
+	// 创建管理者线程
+	manager = thread(managerRun, this);
+
+	// 初始化线程数组
+	ren.resize(max);
+	for (int i = 0; i < min; ++i) {
+		// 创建工作线程
+		ren[i] = thread(findJob, this);
+	}
+}
+
+// 线程池析构函数
+MyThreadPool::~MyThreadPool() {
+	isStop = true;
+	// 回收管理者线程
+	if (manager.joinable()) manager.join();
+	// 唤醒所有线程
+	baoan.notify_all();
+	for (int i = 0; i < maxren; ++i)
+	{
+		// 回收工作线程
+		if (ren[i].joinable()) ren[i].join();
+	}
+}
+
+// 添加任务
+void MyThreadPool::addTask(void (*f)(void*), void* e) {
+	unique_lock<mutex> lk(suo);
+	if (isStop)
+	{
+		return;
+	}
+	// 添加任务到任务队列
+	jobs.push(Task(f, e));
+	// 唤醒一个线程
+	baoan.notify_one();
+}
+
+~~~
+
+
+
