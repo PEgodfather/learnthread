@@ -141,7 +141,7 @@ cout<<*dptr<<endl;//输出1.999
 
 ---
 
-#### notify_one()与notify_all()
+#### 条件变量：notify_one()与notify_all()
 
 头文件`#include <condition_variable>`
 
